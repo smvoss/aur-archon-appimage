@@ -4,37 +4,12 @@ pkgname=archon-appimage
 _pkgapp=archon
 pkgver=9.0.1
 pkgrel=1
-pkgdesc="Desktop uploader app for Archon packaged from the upstream AppImage"
+pkgdesc="Desktop uploader app for Archon packaged as the upstream AppImage"
 arch=('x86_64')
 url='https://www.archon.gg/download'
 license=('custom')
 depends=(
-  'alsa-lib'
-  'at-spi2-core'
-  'cairo'
-  'cups'
-  'dbus'
-  'expat'
-  'gcc-libs'
-  'glib2'
-  'glibc'
-  'gtk3'
-  'libdrm'
-  'libx11'
-  'libxcb'
-  'libxcomposite'
-  'libxdamage'
-  'libxext'
-  'libxfixes'
-  'libxkbcommon'
-  'libxrandr'
-  'mesa'
-  'nspr'
-  'nss'
-  'pango'
-)
-optdepends=(
-  'libappindicator-gtk3: tray icon support on some desktop environments'
+  'fuse2'
 )
 provides=('archon')
 conflicts=('archon' 'archon-bin')
@@ -46,29 +21,27 @@ sha256sums=(
 )
 options=(!strip)
 
-prepare() {
+package() {
   cd "${srcdir}"
 
   chmod +x "${_pkgapp}-v${pkgver}.AppImage"
   ./"${_pkgapp}-v${pkgver}.AppImage" --appimage-extract >/dev/null
-}
 
-package() {
-  cd "${srcdir}"
+  install -Dm755 \
+    "${_pkgapp}-v${pkgver}.AppImage" \
+    "${pkgdir}/opt/${pkgname}/${_pkgapp}.AppImage"
 
-  install -dm755 "${pkgdir}/opt/${pkgname}"
-  cp -a squashfs-root/. "${pkgdir}/opt/${pkgname}/"
-
-  printf '#!/bin/sh\nexec /opt/%s/AppRun --no-sandbox "$@"\n' "${pkgname}" \
+  printf '#!/bin/sh\nexec /opt/%s/%s.AppImage --no-sandbox \"$@\"\n' \
+    "${pkgname}" "${_pkgapp}" \
     > "${srcdir}/${_pkgapp}"
   install -Dm755 "${srcdir}/${_pkgapp}" "${pkgdir}/usr/bin/${_pkgapp}"
 
   install -Dm644 \
-    "${pkgdir}/opt/${pkgname}/usr/share/icons/hicolor/512x512/apps/Archon App.png" \
+    "${srcdir}/squashfs-root/usr/share/icons/hicolor/512x512/apps/Archon App.png" \
     "${pkgdir}/usr/share/icons/hicolor/512x512/apps/archon.png"
 
   install -Dm644 \
-    "${pkgdir}/opt/${pkgname}/Archon App.desktop" \
+    "${srcdir}/squashfs-root/Archon App.desktop" \
     "${pkgdir}/usr/share/applications/archon.desktop"
   sed -i \
     -e 's|^Exec=.*|Exec=/usr/bin/archon %U|' \
@@ -76,9 +49,9 @@ package() {
     "${pkgdir}/usr/share/applications/archon.desktop"
 
   install -Dm644 \
-    "${pkgdir}/opt/${pkgname}/LICENSE.electron.txt" \
+    "${srcdir}/squashfs-root/LICENSE.electron.txt" \
     "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE.electron.txt"
   install -Dm644 \
-    "${pkgdir}/opt/${pkgname}/LICENSES.chromium.html" \
+    "${srcdir}/squashfs-root/LICENSES.chromium.html" \
     "${pkgdir}/usr/share/licenses/${pkgname}/LICENSES.chromium.html"
 }
