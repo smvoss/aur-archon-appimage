@@ -1,0 +1,107 @@
+name: Update Archon Package
+
+on:
+  schedule:
+    - cron: "19 * * * *"
+  workflow_dispatch:
+  repository_dispatch:
+    types:
+      - archon_release
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate PKGBUILD with namcap
+        run: |
+          docker pull archlinux:latest
+          docker run --rm -v "$PWD":/pkg -w /pkg archlinux:latest bash -lc \
+            "pacman -Sy --noconfirm --needed namcap && namcap PKGBUILD"
+
+      - name: Update PKGBUILD from latest release
+        run: ./scripts/update-from-release.sh
+
+      - name: Detect version change
+        id: changes
+        run: |
+          if git diff --quiet PKGBUILD; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "version=$(sed -n 's/^pkgver=//p' PKGBUILD)" >> "$GITHUB_OUTPUT"
+
+      - name: Regenerate .SRCINFO
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          docker run --rm -v "$PWD":/pkg -w /pkg archlinux:latest bash -lc \
+            "pacman -Sy --noconfirm --needed base-devel && useradd -m builder && chown -R builder /pkg && su builder -c 'makepkg --printsrcinfo > /pkg/.SRCINFO'"
+
+      - name: Commit and tag
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add PKGBUILD .SRCINFO
+          git commit -m "Update Archon to v${VERSION}"
+          git tag "v${VERSION}"
+          if [[ "${DRYRUN:-}" == "true" ]]; then
+            echo "DRYRUN: skipping git push and tag push"
+          else
+            git push
+            git push origin "v${VERSION}"
+          fi
+        env:
+          VERSION: ${{ steps.changes.outputs.version }}
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    env:
+      HAS_AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Load AUR SSH key
+        if: env.HAS_AUR_KEY == 'true'
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+
+      - name: Add AUR to known hosts
+        if: env.HAS_AUR_KEY == 'true'
+        run: ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+
+      - name: Push updated packaging to AUR
+        if: env.HAS_AUR_KEY == 'true'
+        run: |
+          git clone ssh://aur@aur.archlinux.org/archon-appimage.git /tmp/aur
+          cd /tmp/aur
+          cp "$GITHUB_WORKSPACE/PKGBUILD" "$GITHUB_WORKSPACE/.SRCINFO" "$GITHUB_WORKSPACE/README.md" ./
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add PKGBUILD .SRCINFO README.md
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Update Archon to ${VERSION}"
+          if [[ "${DRYRUN:-}" == "true" ]]; then
+            echo "DRYRUN: skipping AUR git push"
+          else
+            git push
+          fi
+        env:
+          VERSION: ${{ github.ref_name }}

@@ -2,3 +2,5 @@
 *.src.tar.*
 src/
 pkg/
+docs/
+.actrc
