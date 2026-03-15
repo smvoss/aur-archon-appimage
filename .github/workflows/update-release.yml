@@ -13,6 +13,7 @@ permissions:
 
 jobs:
   update:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     outputs:
       changed: ${{ steps.changes.outputs.changed }}
@@ -67,7 +68,7 @@ jobs:
 
   publish:
     needs: update
-    if: needs.update.outputs.changed == 'true'
+    if: always() && (needs.update.outputs.changed == 'true' || github.event_name == 'push')
     runs-on: ubuntu-latest
     env:
       HAS_AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
@@ -75,6 +76,20 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref || format('refs/tags/v{0}', needs.update.outputs.version) }}
+
+      - name: Debug info
+        run: |
+          echo "event: ${{ github.event_name }}"
+          echo "ref: ${{ github.ref }}"
+          echo "update.changed: ${{ needs.update.outputs.changed }}"
+          echo "update.version: ${{ needs.update.outputs.version }}"
+          echo "VERSION: ${{ needs.update.outputs.version || github.ref_name }}"
+          echo "--- PKGBUILD ---"
+          cat PKGBUILD
+          echo "--- .SRCINFO ---"
+          cat .SRCINFO
 
       - name: Load AUR SSH key
         if: env.HAS_AUR_KEY == 'true'
@@ -105,4 +120,4 @@ jobs:
             git push
           fi
         env:
-          VERSION: ${{ needs.update.outputs.version }}
+          VERSION: ${{ needs.update.outputs.version || github.ref_name }}
