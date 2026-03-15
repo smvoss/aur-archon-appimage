@@ -47,6 +47,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD":/pkg -w /pkg archlinux:latest bash -lc \
             "pacman -Sy --noconfirm --needed base-devel && useradd -m builder && chown -R builder /pkg && su builder -c 'makepkg --printsrcinfo > /pkg/.SRCINFO'"
+          sudo chown -R "$USER" .git
 
       - name: Commit and tag
         if: steps.changes.outputs.changed == 'true'
