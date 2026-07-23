@@ -37,11 +37,11 @@ package() {
   install -Dm755 "${srcdir}/${_pkgapp}" "${pkgdir}/usr/bin/${_pkgapp}"
 
   install -Dm644 \
-    "${srcdir}/squashfs-root/usr/share/icons/hicolor/512x512/apps/Archon App.png" \
+    "${srcdir}/squashfs-root/usr/share/icons/hicolor/512x512/apps/archon.png" \
     "${pkgdir}/usr/share/icons/hicolor/512x512/apps/archon.png"
 
   install -Dm644 \
-    "${srcdir}/squashfs-root/Archon App.desktop" \
+    "${srcdir}/squashfs-root/archon.desktop" \
     "${pkgdir}/usr/share/applications/archon.desktop"
   sed -i \
     -e 's|^Exec=.*|Exec=/usr/bin/archon %U|' \
