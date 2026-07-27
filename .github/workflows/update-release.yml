@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       changed: ${{ steps.changes.outputs.changed }}
-      version: ${{ steps.changes.outputs.version }}
+      release: ${{ steps.changes.outputs.release }}
 
     steps:
       - name: Checkout repository
@@ -35,7 +35,7 @@ jobs:
       - name: Update PKGBUILD from latest release
         run: ./scripts/update-from-release.sh
 
-      - name: Detect version change
+      - name: Detect package change
         id: changes
         run: |
           if git diff --quiet PKGBUILD; then
@@ -43,7 +43,9 @@ jobs:
             exit 0
           fi
           echo "changed=true" >> "$GITHUB_OUTPUT"
-          echo "version=$(sed -n 's/^pkgver=//p' PKGBUILD)" >> "$GITHUB_OUTPUT"
+          pkgver="$(sed -n 's/^pkgver=//p' PKGBUILD)"
+          pkgrel="$(sed -n 's/^pkgrel=//p' PKGBUILD)"
+          echo "release=${pkgver}-${pkgrel}" >> "$GITHUB_OUTPUT"
 
       - name: Regenerate .SRCINFO
         if: steps.changes.outputs.changed == 'true'
@@ -58,16 +60,16 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add PKGBUILD .SRCINFO
-          git commit -m "Update Archon to v${VERSION}"
-          git tag "v${VERSION}"
+          git commit -m "Update Archon to v${RELEASE}"
+          git tag "v${RELEASE}"
           if [[ "${DRYRUN:-}" == "true" ]]; then
             echo "DRYRUN: skipping git push and tag push"
           else
             git push
-            git push origin "v${VERSION}"
+            git push origin "v${RELEASE}"
           fi
         env:
-          VERSION: ${{ steps.changes.outputs.version }}
+          RELEASE: ${{ steps.changes.outputs.release }}
 
   publish:
     needs: update
@@ -80,15 +82,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'push' && github.ref || format('refs/tags/v{0}', needs.update.outputs.version) }}
+          ref: ${{ github.event_name == 'push' && github.ref || format('refs/tags/v{0}', needs.update.outputs.release) }}
 
       - name: Debug info
         run: |
           echo "event: ${{ github.event_name }}"
           echo "ref: ${{ github.ref }}"
           echo "update.changed: ${{ needs.update.outputs.changed }}"
-          echo "update.version: ${{ needs.update.outputs.version }}"
-          echo "VERSION: ${{ needs.update.outputs.version || github.ref_name }}"
+          echo "update.release: ${{ needs.update.outputs.release }}"
+          echo "RELEASE: ${{ needs.update.outputs.release || github.ref_name }}"
           echo "--- PKGBUILD ---"
           cat PKGBUILD
           echo "--- .SRCINFO ---"
@@ -116,11 +118,11 @@ jobs:
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "Update Archon to ${VERSION}"
+          git commit -m "Update Archon to ${RELEASE}"
           if [[ "${DRYRUN:-}" == "true" ]]; then
             echo "DRYRUN: skipping AUR git push"
           else
             git push
           fi
         env:
-          VERSION: ${{ needs.update.outputs.version || github.ref_name }}
+          RELEASE: ${{ needs.update.outputs.release || github.ref_name }}

@@ -2,8 +2,9 @@
 # update-from-release.sh
 #
 # Fetches the latest upstream Archon release from GitHub, downloads the
-# AppImage asset, computes its sha256, and rewrites PKGBUILD with the new
-# pkgver and sha256sums values.
+# AppImage asset, computes its sha256, and rewrites PKGBUILD. When the
+# packaging repo changes without an upstream AppImage version change, it bumps
+# pkgrel so the AUR release still rolls forward.
 #
 # Usage:
 #   ./scripts/update-from-release.sh [RELEASE_API_URL]
@@ -23,6 +24,7 @@
 set -euo pipefail
 
 REPO_API_URL="${1:-https://api.github.com/repos/RPGLogs/Uploaders-archon/releases/latest}"
+CURRENT_COMMIT="$(git rev-parse --short=7 HEAD)"
 
 # fetch_release_json
 #
@@ -102,15 +104,52 @@ compute_sha256() {
   sha256sum "${tmpfile}" | awk '{print $1}'
 }
 
+# get_pkgbuild_value
+#
+# Reads a simple shell assignment from PKGBUILD and prints the value.
+get_pkgbuild_value() {
+  local key="$1"
+
+  sed -n "s/^${key}=//p" PKGBUILD
+}
+
+# bump_pkgrel
+#
+# Increments the numeric pkgrel value in PKGBUILD.
+bump_pkgrel() {
+  local current_pkgrel next_pkgrel
+
+  current_pkgrel="$(get_pkgbuild_value "pkgrel")"
+
+  if [[ ! "${current_pkgrel}" =~ ^[0-9]+$ ]]; then
+    echo "Failed to determine current pkgrel from PKGBUILD" >&2
+    exit 1
+  fi
+
+  next_pkgrel="$((current_pkgrel + 1))"
+  sed -i -E "s/^pkgrel=.*/pkgrel=${next_pkgrel}/" PKGBUILD
+  echo "${next_pkgrel}"
+}
+
 # update_pkgbuild
 #
-# Rewrites pkgver and sha256sums in PKGBUILD in-place.
+# Rewrites PKGBUILD in-place for the current upstream release and packaging
+# commit. A new upstream version resets pkgrel to 1.
 update_pkgbuild() {
   local version="$1"
   local sha256="$2"
 
+  sed -i -E "s/^_pkgbuild_commit=.*/_pkgbuild_commit=${CURRENT_COMMIT}/" PKGBUILD
   sed -i -E "s/^pkgver=.*/pkgver=${version}/" PKGBUILD
-  sed -i -E "/^sha256sums=\(/,/^\)/ s/'[0-9a-f]{64}'/'${sha256}'/" PKGBUILD
+  sed -i -E "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+  sed -i -E "/^sha256sums=\(/,/^\)/ s/'[^']*'/'${sha256}'/" PKGBUILD
+}
+
+# record_pkgbuild_commit
+#
+# Updates PKGBUILD so the current packaging commit is marked as processed.
+record_pkgbuild_commit() {
+  sed -i -E "s/^_pkgbuild_commit=.*/_pkgbuild_commit=${CURRENT_COMMIT}/" PKGBUILD
 }
 
 # main
@@ -123,7 +162,7 @@ update_pkgbuild() {
 #   5. Rewrite PKGBUILD with the new version and checksum
 main() {
   local release_json version asset_url sha256
-  local current_ver
+  local current_ver current_pkgrel current_pkgbuild_commit next_pkgrel
 
   echo "Fetching release info from ${REPO_API_URL} ..."
   release_json="$(fetch_release_json "${REPO_API_URL}")"
@@ -131,10 +170,21 @@ main() {
   version="$(parse_version "${release_json}")"
   asset_url="$(parse_asset_url "${release_json}")"
 
-  # Skip the download entirely when PKGBUILD is already up to date.
-  current_ver="$(sed -n 's/^pkgver=//p' PKGBUILD)"
+  current_ver="$(get_pkgbuild_value "pkgver")"
+  current_pkgrel="$(get_pkgbuild_value "pkgrel")"
+  current_pkgbuild_commit="$(get_pkgbuild_value "_pkgbuild_commit")"
+
   if [[ "${version}" == "${current_ver}" ]]; then
-    printf 'PKGBUILD is already at %s, nothing to do.\n' "${version}"
+    if [[ "${current_pkgbuild_commit}" == "${CURRENT_COMMIT}" ]]; then
+      printf 'PKGBUILD is already at %s-%s for packaging commit %s, nothing to do.\n' \
+        "${version}" "${current_pkgrel}" "${CURRENT_COMMIT}"
+      exit 0
+    fi
+
+    next_pkgrel="$(bump_pkgrel)"
+    record_pkgbuild_commit
+    printf 'Packaging changed without an upstream release; bumped pkgrel to %s for %s.\n' \
+      "${next_pkgrel}" "${version}"
     exit 0
   fi
 
@@ -145,7 +195,7 @@ main() {
 
   update_pkgbuild "${version}" "${sha256}"
 
-  printf 'Updated PKGBUILD to v%s (%s)\n' "${version}" "${sha256}"
+  printf 'Updated PKGBUILD to v%s-1 (%s)\n' "${version}" "${sha256}"
 }
 
 main
