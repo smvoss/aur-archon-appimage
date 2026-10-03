@@ -2,7 +2,7 @@ name: Update Archon Package
 
 on:
   schedule:
-    - cron: "19 * * * *"
+    - cron: "29 * * * *"
   workflow_dispatch:
   repository_dispatch:
     types:
